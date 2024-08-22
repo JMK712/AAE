@@ -8,14 +8,13 @@ RightFoot -> Pause
 Rest
 标注以方便开发，传输信号时需要逆映射回去
 """
-
-import numpy as np
-
-from Paradigm.base import SynParadigm
-from tqdm import tqdm
 import time
+import numpy as np
+import csv
+from Paradigm.base import SynParadigm
 import mne
 from mne.time_frequency import tfr_morlet
+
 
 class AAEParadigm(SynParadigm):
     def __init__(self, BCIServer, preprocess, trainned_model, inverse_class_map=None,
@@ -45,44 +44,44 @@ class AAEParadigm(SynParadigm):
         cmd = 'Cmd_AAEOnline_Set' + name + option
         self.BCIServer.broadcastCmd(cmd)
 
-    def SendConfig(self):
-        delay = 1
-        pbar = tqdm(total=10)
-
-        self.BCIServer.broadcastCmd('Cmd_AAEOnline_SetNSession_' + str(self.config['n_session']))
-        time.sleep(delay)
-        pbar.update(1)
-
-        self.BCIServer.broadcastCmd('Cmd_AAEOnline_SetNRun_' + str(self.config['n_run']))
-        time.sleep(delay)
-        pbar.update(1)
-
-        self.BCIServer.broadcastCmd('Cmd_AAEOnline_SetNTrial_' + str(self.config['n_trial']))
-        time.sleep(delay)
-        pbar.update(1)
-
-        self.SendAAETrial('Road1')
-        time.sleep(delay)
-        pbar.update(1)
-
-        self.SendAAETrial('Road2')
-        time.sleep(delay)
-        pbar.update(1)
-
-        self.SendAAETrial('Road3')
-        time.sleep(delay)
-        pbar.update(1)
-
-        self.SendAAETrial('Road4')
-        time.sleep(delay)
-        pbar.update(1)
-
-        self.SendAAETrial('Pause')
-        time.sleep(delay)
-        pbar.update(1)
-
-        time.sleep(delay)
-        pbar.close()
+    # def SendConfig(self):
+    #     delay = 1
+    #     pbar = tqdm(total=10)
+    #
+    #     self.BCIServer.broadcastCmd('Cmd_AAEOnline_SetNSession_' + str(self.config['n_session']))
+    #     time.sleep(delay)
+    #     pbar.update(1)
+    #
+    #     self.BCIServer.broadcastCmd('Cmd_AAEOnline_SetNRun_' + str(self.config['n_run']))
+    #     time.sleep(delay)
+    #     pbar.update(1)
+    #
+    #     self.BCIServer.broadcastCmd('Cmd_AAEOnline_SetNTrial_' + str(self.config['n_trial']))
+    #     time.sleep(delay)
+    #     pbar.update(1)
+    #
+    #     self.SendAAETrial('Road1')
+    #     time.sleep(delay)
+    #     pbar.update(1)
+    #
+    #     self.SendAAETrial('Road2')
+    #     time.sleep(delay)
+    #     pbar.update(1)
+    #
+    #     self.SendAAETrial('Road3')
+    #     time.sleep(delay)
+    #     pbar.update(1)
+    #
+    #     self.SendAAETrial('Road4')
+    #     time.sleep(delay)
+    #     pbar.update(1)
+    #
+    #     self.SendAAETrial('Pause')
+    #     time.sleep(delay)
+    #     pbar.update(1)
+    #
+    #     time.sleep(delay)
+    #     pbar.close()
 
     def init_config(self, config):
         # 默认是无限进行，部位无设置默认为否
@@ -105,7 +104,6 @@ class AAEParadigm(SynParadigm):
 
     def run(self):
         self.reset()
-        self.SendConfig()
         self.startListening()
         self.BCIServer.broadcastCmd('Cmd_AAEOnline_Start')
 
@@ -118,22 +116,32 @@ class AAEParadigm(SynParadigm):
         self.stopListening()
 
     def EventHandler(self, type):
-        if type == 'session start':
-            self.running_param['i_session'] += 1
-            self.running_param['i_run'] = -1
-            self.running_param['i_trial'] = -1
-            print('Session ', self.running_param['i_session'] + 1, ' Start')
 
-        if type == 'session end':
-            print('Session ', self.running_param['i_session'] + 1, ' End')
+        #TODO：set receivers :
+        # "StartTrial_1" =>Road 1
+        # "TrialEnd"
+        # "TrialCmd_Report_" + coefficient
+        # "TrialCmd_RequestTrack_" + track
+        # "StartNewTrial"
+        #TODO: set senders
+        # "TrialCmd_SetMusicVolume_0.5" ==> o.o - 1.o
 
-        if type == 'run start':
-            self.running_param['i_run'] += 1
-            self.running_param['i_trial'] = -1
-            print('Run ', self.running_param['i_run'] + 1, ' Start')
-
-        if type == 'run end':
-            print('Run ', self.running_param['i_run'] + 1, ' End')
+        # if type == 'session start':
+        #     self.running_param['i_session'] += 1
+        #     self.running_param['i_run'] = -1
+        #     self.running_param['i_trial'] = -1
+        #     print('Session ', self.running_param['i_session'] + 1, ' Start')
+        #
+        # if type == 'session end':
+        #     print('Session ', self.running_param['i_session'] + 1, ' End')
+        #
+        # if type == 'run start':
+        #     self.running_param['i_run'] += 1
+        #     self.running_param['i_trial'] = -1
+        #     print('Run ', self.running_param['i_run'] + 1, ' Start')
+        #
+        # if type == 'run end':
+        #     print('Run ', self.running_param['i_run'] + 1, ' End')
 
         if type == 'trial start':
             self.running_param['i_trial'] += 1
@@ -153,7 +161,6 @@ class AAEParadigm(SynParadigm):
 
             # TODO: 使用mne来获取注意力状态，0表示不集中，1表示集中
 
-
             self.pro.process_data(stream_id=1, client_id=1)
 
         if type == 'request track data':
@@ -165,14 +172,9 @@ class AAEParadigm(SynParadigm):
             data = self.BCIServer.streamClients[stream_id].Buffer.getData(dataPeriod=dataPeriod)
             data = np.expand_dims(data, axis=0)
 
-
             # TODO: 使用mne来获取注意力状态，0表示不集中，1表示集中
             # 使用模型来预测data
             y = self.trainned_model.predict(data)[0]
-
-            self.BCIServer.valueService.SetValue('Attention', int(y))  # TODO 这里要去valueService中设定
-            self.BCIServer.valueService.UpdateValue(name='Attention', value=int(1),
-                                                    conn=self.BCIServer.appClients[client_id])
 
     def startListening(self):
         self.BCIServer.eventService.typeChangedHandler.update({'AAE': self.EventHandler})
@@ -182,7 +184,6 @@ class AAEParadigm(SynParadigm):
         if self.running_param['is_Listening']:
             self.BCIServer.eventService.typeChangedHandler.pop('AAE')
             self.running_param['is_Listening'] = False
-
 
     def compute_attention_scores(epochs, freqs=[6, 10]):
         """
@@ -223,3 +224,8 @@ class AAEParadigm(SynParadigm):
         self.BCIServer.valueService.UpdateValue(name='Attention', value=attention_scores,
                                                 conn=self.BCIServer.appClients[client_id])
 
+    def RecordData(self, data):
+        # 按分钟记录数据
+        with open(r'../data/' + time.strftime('%Y-%m-%d %H-%M') + '.csv', 'a', newline='') as f:
+            writer = csv.writer(f)
+            writer.writerow(data)
