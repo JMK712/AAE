@@ -40,11 +40,4 @@ class EventService(object):
     def MessageHandler(self, msg):
         # print('EventService received message: ', msg)
         msg_split = msg.split('_')
-        cmd, code = msg_split[0], msg_split[1]
-        if cmd == 'SessionControl':
-            self.last_sessionControlType = self.cur_sessionControlType
-            sessionControlType = ReversedSessionControlCode[code]
-            self.cur_sessionControlType = sessionControlType
-            if sessionControlType != self.last_sessionControlType:
-                for key in self.typeChangedHandler:
-                    self.typeChangedHandler[key](sessionControlType)
+        self.typeChangedHandler[1](msg_split)
