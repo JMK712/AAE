@@ -1,3 +1,4 @@
+import asyncio
 import math
 import random
 import time
@@ -31,11 +32,6 @@ class AAEParadigm(SynParadigm):
             'n_run': 3,  # 重复实验次数
             'n_trial': 4,  # 道路数量
             'DataPeriod': 1,  # 分析数据的采样周期
-            'Road1': False,
-            'Road2': False,
-            'Road3': False,
-            'Road4': False,
-            'Pause': False,
         }
         self.running_param = {
             'i_session': -1,  # 参与者数量
@@ -49,7 +45,9 @@ class AAEParadigm(SynParadigm):
 
     def run(self):
         self.reset()
-        self.SessionLogic()
+        self.BCIServer.eventService.typeChangedHandler.update({'AAE': self.EventHandler})
+        asyncio.run(self.SessionLogic())
+
 
     def reset(self):
         self.running_param['i_session'] = 0
@@ -62,8 +60,8 @@ class AAEParadigm(SynParadigm):
     async def SessionLogic(self):
         while self.running_param['i_session'] < self.config['n_session']:
             self.running_param['i_session'] += 1
-            self.track_mode += 1
             await self.RunLogic()
+            self.track_mode += 1
 
     async def RunLogic(self):
         while self.running_param['i_run'] < self.config['n_run']:
@@ -79,9 +77,9 @@ class AAEParadigm(SynParadigm):
     async def StartTrial(self):
         while not self.triggerStartTrial:
             time.sleep(1)  # 以1秒为间隔查看触发bool，等待触发
-            self.SendVolume()  # 顺便每一秒发送音量
+            # self.SendVolume()  # 顺便每一秒发送音量
         self.SendTrackCode(self.track_mode)
-        print('Trial ', self.running_param['i_trial'], ' Start')
+        print('Trial ', self.running_param['i_trial']+1, ' Start')
         self.triggerStartTrial = False
 
     async def EndTrial(self):
@@ -102,10 +100,11 @@ class AAEParadigm(SynParadigm):
         # "TrialCmd_SetMusicVolume_0.5" ==> o.o - 1.o
         # "StartTrial_1" =>Road 1 . to new a trial by 1234
         # "TrialCmd_SetTrack_0"
-
+        print(msg_split)
         if msg_split[0] == 'StartNewTrial':
             self.triggerStartTrial = True
-            self.BCIServer.broadcastCmd('StartTrial_' + str(self.running_param['i_trial'] - 1))
+            self.BCIServer.broadcastCmd('StartTrial_' + str(self.running_param['i_trial']))
+            print('StartTrial_' + str(self.running_param['i_trial']))
 
         if msg_split[0] == 'TrialEnd':
             self.triggerEndTrial = True
@@ -159,15 +158,15 @@ class AAEParadigm(SynParadigm):
     def SendVolume(self):
         # 生成并发送音量数据
         print('generating Volume.')
-        stream_id = self.running_param['stream_id']
-        data_period = self.config['DataPeriod']
-        client_id = self.running_param['client_id']
-
         # 使用mne来获取注意力状态，0.0-1.0
         # TODO determine the explicit attention_scores
         # volume = self.process_data(stream_id=stream_id, data_period=data_period)  # 选定通道的α和θ波平均功率折合音量
-        volume = self.calculate_attention(self.running_param['stream_id'], self.config['DataPeriod'])  # 选定通道的平均功率折合音量
-        self.BCIServer.broadcastCmd("TrialCmd_SetMusicVolume_" + volume)
+        volume = self.calculate_attention([0, 1], self.config['DataPeriod'])  # 选定通道的平均功率折合音量
+        if volume is not None:
+            self.BCIServer.broadcastCmd("TrialCmd_SetMusicVolume_" + str(volume))
+        else:
+            self.BCIServer.broadcastCmd("TrialCmd_SetMusicVolume_" + str(0.05))
+        self.TrialCoefficientData.append(volume)
         print('Sent Volume:', volume)
 
     def SendTrackCode(self, track_mode=0):
@@ -194,27 +193,33 @@ class AAEParadigm(SynParadigm):
             track_code = -1
         self.BCIServer.broadcastCmd("TrialCmd_SetTrack_" + str(track_code))
         print('Sent TrackCode:', track_code)
+        self.TrialCoefficientData = []
         self.previous_g_track_code = track_code
 
     def GenerateTrackCode(self):
         # TODO check if valid
         track_code = '0'
-        for i in range(self.TrialCoefficientData.count()):
-            track_code += float(self.TrialCoefficientData[i])
-        track_code = abs(math.ceil(int(track_code) / self.TrialCoefficientData.count()) * 10)
+
+        try:
+            for i in range(self.TrialCoefficientData.count()):
+                track_code += float(self.TrialCoefficientData[i])
+            track_code = abs(math.ceil(int(track_code) / self.TrialCoefficientData.count()) * 10)
+        except:
+            track_code = str(random.randint(1, 10))
         return track_code
 
     def calculate_attention(self, attention_channels, window_size=1):
 
         client = self.BCIServer.streamClients[self.running_param['stream_id']]
-
         if not client.buffer:
+            print("No buffer.")
             return None
 
         data = client.Buffer.getData(
             window_size * client.basicInfo['sampleRate'])  # Get the latest data from the buffer
 
         if data is None or data.shape[1] == 0:
+            print("No data available in buffer.")
             return None
 
         relevant_data = data[attention_channels, :]  # Extract the relevant channels

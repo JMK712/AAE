@@ -40,4 +40,4 @@ class EventService(object):
     def MessageHandler(self, msg):
         # print('EventService received message: ', msg)
         msg_split = msg.split('_')
-        self.typeChangedHandler[1](msg_split)
+        self.typeChangedHandler['AAE'](msg_split)
