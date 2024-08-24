@@ -1,3 +1,5 @@
+import math
+import random
 import time
 import csv
 from Paradigm.base import SynParadigm
@@ -16,12 +18,16 @@ def record_data(data):
 class AAEParadigm(SynParadigm):
     def __init__(self, BCIServer):
         SynParadigm.__init__(self, BCIServer=BCIServer)
+        self.previous_g_track_code = None
+        self.track_mode = 0
         self.triggerEndTrial = None
         self.triggerStartTrial = None
         self.TrialCoefficientData = []
 
         self.config = {
-            'n_session': 2,  # 对照实验和使用AAE的实验
+            'n_session': 5,
+            # AAE-track_mode=0实验, AAE-track_mode=1实验, AAE-track_mode=2(无track changing)实验
+            # AAE-track_mode=3(random track)实验,对照实验(mute-track_mode=4)
             'n_run': 3,  # 重复实验次数
             'n_trial': 4,  # 道路数量
             'DataPeriod': 1,  # 分析数据的采样周期
@@ -56,6 +62,7 @@ class AAEParadigm(SynParadigm):
     async def SessionLogic(self):
         while self.running_param['i_session'] < self.config['n_session']:
             self.running_param['i_session'] += 1
+            self.track_mode += 1
             await self.RunLogic()
 
     async def RunLogic(self):
@@ -67,14 +74,13 @@ class AAEParadigm(SynParadigm):
         while self.running_param['i_trial'] < self.config['n_trial']:
             await self.StartTrial()
             self.running_param['i_trial'] += 1
-
             await self.EndTrial()
 
     async def StartTrial(self):
         while not self.triggerStartTrial:
             time.sleep(1)  # 以1秒为间隔查看触发bool，等待触发
             self.SendVolume()  # 顺便每一秒发送音量
-        self.SendTrackCode()
+        self.SendTrackCode(self.track_mode)
         print('Trial ', self.running_param['i_trial'], ' Start')
         self.triggerStartTrial = False
 
@@ -87,12 +93,12 @@ class AAEParadigm(SynParadigm):
 
     def EventHandler(self, msg_split):
 
-        # TODO：set receivers :
+        # ：set receivers :
         # "StartNewTrial"
         # "TrialEnd"
         # "TrialCmd_Report_" + coefficient
 
-        # TODO: set senders
+        # : set senders
         # "TrialCmd_SetMusicVolume_0.5" ==> o.o - 1.o
         # "StartTrial_1" =>Road 1 . to new a trial by 1234
         # "TrialCmd_SetTrack_0"
@@ -164,15 +170,39 @@ class AAEParadigm(SynParadigm):
         self.BCIServer.broadcastCmd("TrialCmd_SetMusicVolume_" + volume)
         print('Sent Volume:', volume)
 
-    def SendTrackCode(self):
-        # 分析注意力数据并发送TrackCode
-        print('generating TrackCode.')
+    def SendTrackCode(self, track_mode=0):
+        g_code = self.GenerateTrackCode()
+        if track_mode == 0:
+            print('generating TrackCode by average Coefficient.')
+            track_code = g_code
+        elif track_mode == 1:
+            print('generating TrackCode by gradually changing method.')
+            if self.previous_g_track_code > g_code:
+                track_code = self.previous_g_track_code + 1
+            elif self.previous_g_track_code < g_code:
+                track_code = self.previous_g_track_code - 1
+            elif self.previous_g_track_code == g_code:
+                track_code = g_code
+        elif track_mode == 2:
+            print('generating TrackCode by no change mode')
+            track_code = self.previous_g_track_code
+        elif track_mode == 3:
+            print('generating TrackCode by random mode')
+            track_code = random.randint(0, 10)
+        elif track_mode == 4:
+            print('generating TrackCode by no track (mute) mode')
+            track_code = -1
+        self.BCIServer.broadcastCmd("TrialCmd_SetTrack_" + str(track_code))
+        print('Sent TrackCode:', track_code)
+        self.previous_g_track_code = track_code
+
+    def GenerateTrackCode(self):
+        # TODO check if valid
         track_code = '0'
         for i in range(self.TrialCoefficientData.count()):
             track_code += float(self.TrialCoefficientData[i])
-        track_code = int(track_code) / self.TrialCoefficientData.count()
-        self.BCIServer.broadcastCmd("TrialCmd_SetTrack_" + str(track_code))
-        print('Sent TrackCode:', track_code)
+        track_code = abs(math.ceil(int(track_code) / self.TrialCoefficientData.count()) * 10)
+        return track_code
 
     def calculate_attention(self, attention_channels, window_size=1):
 
@@ -181,24 +211,17 @@ class AAEParadigm(SynParadigm):
         if not client.buffer:
             return None
 
-        # Get the latest data from the buffer
-        data = client.Buffer.getData(window_size * client.basicInfo['sampleRate'])
+        data = client.Buffer.getData(
+            window_size * client.basicInfo['sampleRate'])  # Get the latest data from the buffer
 
         if data is None or data.shape[1] == 0:
             return None
 
-        # Extract the relevant channels
-        relevant_data = data[attention_channels, :]
-
-        # Calculate the mean power for each channel
-        mean_powers = np.mean(np.square(relevant_data), axis=1)
-
+        relevant_data = data[attention_channels, :]  # Extract the relevant channels
+        mean_powers = np.mean(np.square(relevant_data), axis=1)  # Calculate the mean power for each channel
         # Normalize the mean powers to a 0.0-1.0 scale
         max_power = np.max(mean_powers)
         min_power = np.min(mean_powers)
         normalized_powers = (mean_powers - min_power) / (max_power - min_power)
-
-        # Average the normalized powers to get a single attention value
-        attention_value = np.mean(normalized_powers)
-
+        attention_value = np.mean(normalized_powers)  # Average the normalized powers to get a single attention value
         return attention_value
