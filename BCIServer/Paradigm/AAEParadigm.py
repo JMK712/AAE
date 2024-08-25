@@ -6,7 +6,6 @@ import csv
 from Paradigm.base import SynParadigm
 import numpy as np
 import mne
-from mne.time_frequency import tfr_morlet
 
 
 def record_data(data):
@@ -24,6 +23,12 @@ class AAEParadigm(SynParadigm):
         self.triggerEndTrial = None
         self.triggerStartTrial = None
         self.TrialCoefficientData = []
+
+        self.sfreq = 1000  # frequency
+        # self.ch_names = ['Fp1', 'Fp2', 'Fpz', 'C3', 'C4', 'Cz', 'FC3', 'FC4', 'FCz', 'P3', 'P4', 'Pz', 'T7', 'T8']
+        self.ch_names = ['1', '2', "3", '4', "5", '6', '7', '8']
+        self.info = mne.create_info(ch_names=self.ch_names, sfreq=self.sfreq, ch_types='eeg')
+
 
         self.config = {
             'n_session': 5,
@@ -47,7 +52,6 @@ class AAEParadigm(SynParadigm):
         self.reset()
         self.BCIServer.eventService.typeChangedHandler.update({'AAE': self.EventHandler})
         asyncio.run(self.SessionLogic())
-
 
     def reset(self):
         self.running_param['i_session'] = 0
@@ -79,7 +83,7 @@ class AAEParadigm(SynParadigm):
             time.sleep(1)  # 以1秒为间隔查看触发bool，等待触发
             # self.SendVolume()  # 顺便每一秒发送音量
         self.SendTrackCode(self.track_mode)
-        print('Trial ', self.running_param['i_trial']+1, ' Start')
+        print('Trial ', self.running_param['i_trial'] + 1, ' Start')
         self.triggerStartTrial = False
 
     async def EndTrial(self):
@@ -161,7 +165,7 @@ class AAEParadigm(SynParadigm):
         # 使用mne来获取注意力状态，0.0-1.0
         # TODO determine the explicit attention_scores
         # volume = self.process_data(stream_id=stream_id, data_period=data_period)  # 选定通道的α和θ波平均功率折合音量
-        volume = self.calculate_attention([0, 1], self.config['DataPeriod'])  # 选定通道的平均功率折合音量
+        volume = self.calculate_attention(self.ch_names, self.config['DataPeriod'])  # 选定通道的平均功率折合音量
         if volume is not None:
             self.BCIServer.broadcastCmd("TrialCmd_SetMusicVolume_" + str(volume))
         else:
@@ -209,24 +213,51 @@ class AAEParadigm(SynParadigm):
         return track_code
 
     def calculate_attention(self, attention_channels, window_size=1):
-
         client = self.BCIServer.streamClients[self.running_param['stream_id']]
-        if not client.buffer:
-            print("No buffer.")
-            return None
-
-        data = client.Buffer.getData(
-            window_size * client.basicInfo['sampleRate'])  # Get the latest data from the buffer
+        data = client.Buffer.getData(window_size)  # Get the latest data from the buffer
 
         if data is None or data.shape[1] == 0:
             print("No data available in buffer.")
             return None
 
-        relevant_data = data[attention_channels, :]  # Extract the relevant channels
-        mean_powers = np.mean(np.square(relevant_data), axis=1)  # Calculate the mean power for each channel
+        # Ensure the order of attention_channels matches the order in data
+        # Check if all channels in attention_channels are present in data
+        channel_indices = []
+        for channel in attention_channels:
+            if channel in self.ch_names:
+                channel_indices.append(self.ch_names.index(channel))
+            else:
+                print(f"Warning: Channel {channel} not found in data. Skipping.")
+
+        if len(channel_indices) == 0:
+            print("No valid channels found in data.")
+            return None
+
+        # If there's only one channel in data, use it directly
+        if data.shape[0] == 1:
+            relevant_data = data
+        else:
+            # Check if the number of channels in data matches the number of channels requested
+            if data.shape[0] < len(channel_indices):
+                print(f"Warning: Not enough channels in data ({data.shape[0]}). Expected {len(channel_indices)} channels.")
+                return None
+
+            relevant_data = data[channel_indices, :]  # Extract the relevant channels by their indices
+
+        raw = mne.io.RawArray(relevant_data, self.info)
+
+        # Apply band-pass filter
+        raw.filter(8, 12, method='iir')  # Filter in the alpha band (8-12 Hz)
+
+        # Extract features, e.g., average power in the alpha band
+        # Set n_per_seg to allow zero-padding
+        n_per_seg = data.shape[1]  # Use the actual signal length
+        psds, freqs = mne.time_frequency.psd_welch(raw, fmin=8, fmax=12, n_fft=256, n_per_seg=n_per_seg)
+        mean_alpha_power = np.mean(psds, axis=1)
+
         # Normalize the mean powers to a 0.0-1.0 scale
-        max_power = np.max(mean_powers)
-        min_power = np.min(mean_powers)
-        normalized_powers = (mean_powers - min_power) / (max_power - min_power)
+        max_power = np.max(mean_alpha_power)
+        min_power = np.min(mean_alpha_power)
+        normalized_powers = (mean_alpha_power - min_power) / (max_power - min_power)
         attention_value = np.mean(normalized_powers)  # Average the normalized powers to get a single attention value
         return attention_value
