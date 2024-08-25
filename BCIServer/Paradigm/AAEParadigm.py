@@ -29,7 +29,6 @@ class AAEParadigm(SynParadigm):
         self.ch_names = ['1', '2', "3", '4', "5", '6', '7', '8']
         self.info = mne.create_info(ch_names=self.ch_names, sfreq=self.sfreq, ch_types='eeg')
 
-
         self.config = {
             'n_session': 5,
             # AAE-track_mode=0实验, AAE-track_mode=1实验, AAE-track_mode=2(无track changing)实验
@@ -51,7 +50,16 @@ class AAEParadigm(SynParadigm):
     def run(self):
         self.reset()
         self.BCIServer.eventService.typeChangedHandler.update({'AAE': self.EventHandler})
-        asyncio.run(self.SessionLogic())
+
+        asyncio.run(self.async_main())
+
+    async def async_main(self):
+        self.triggerStartTrial = asyncio.Event()
+        self.triggerEndTrial = asyncio.Event()
+        await asyncio.gather(
+            self.SessionLogic(),
+            self.SendVolumeLoop()
+        )
 
     def reset(self):
         self.running_param['i_session'] = 0
@@ -79,19 +87,15 @@ class AAEParadigm(SynParadigm):
             await self.EndTrial()
 
     async def StartTrial(self):
-        while not self.triggerStartTrial:
-            time.sleep(1)  # 以1秒为间隔查看触发bool，等待触发
-            # self.SendVolume()  # 顺便每一秒发送音量
+        await self.triggerStartTrial.wait()
+        self.triggerStartTrial.clear()
         self.SendTrackCode(self.track_mode)
         print('Trial ', self.running_param['i_trial'] + 1, ' Start')
-        self.triggerStartTrial = False
 
     async def EndTrial(self):
-        while not self.triggerEndTrial:
-            time.sleep(1)
-            self.SendVolume()
-        print('Trial ', self.running_param['i_trial'], ' End')
-        self.triggerEndTrial = False
+        await self.triggerEndTrial.wait()
+        self.triggerEndTrial.clear()
+        print('Trial ', self.running_param['i_trial'] + 1, ' End')
 
     def EventHandler(self, msg_split):
 
@@ -106,12 +110,12 @@ class AAEParadigm(SynParadigm):
         # "TrialCmd_SetTrack_0"
         print(msg_split)
         if msg_split[0] == 'StartNewTrial':
-            self.triggerStartTrial = True
+            self.triggerStartTrial.set()
             self.BCIServer.broadcastCmd('StartTrial_' + str(self.running_param['i_trial']))
             print('StartTrial_' + str(self.running_param['i_trial']))
 
         if msg_split[0] == 'TrialEnd':
-            self.triggerEndTrial = True
+            self.triggerEndTrial.set()
 
         if msg_split[0] == 'TrialCmd':
             if msg_split[1] == 'Report':
@@ -159,19 +163,21 @@ class AAEParadigm(SynParadigm):
     #     attention_scores = self.compute_attention_scores(epochs)
     #     return attention_scores
 
-    def SendVolume(self):
-        # 生成并发送音量数据
-        print('generating Volume.')
-        # 使用mne来获取注意力状态，0.0-1.0
-        # TODO determine the explicit attention_scores
-        # volume = self.process_data(stream_id=stream_id, data_period=data_period)  # 选定通道的α和θ波平均功率折合音量
-        volume = self.calculate_attention(self.ch_names, self.config['DataPeriod'])  # 选定通道的平均功率折合音量
-        if volume is not None:
-            self.BCIServer.broadcastCmd("TrialCmd_SetMusicVolume_" + str(volume))
-        else:
-            self.BCIServer.broadcastCmd("TrialCmd_SetMusicVolume_" + str(0.05))
-        self.TrialCoefficientData.append(volume)
-        print('Sent Volume:', volume)
+    async def SendVolumeLoop(self):
+        while True:
+            # 生成并发送音量数据
+            print('generating Volume.')
+            # 使用mne进行滤波，生成注意力状态，0.0-1.0
+            # determine the explicit attention_scores
+            # volume = self.process_data(stream_id=stream_id, data_period=data_period)  # 选定通道的α和θ波平均功率折合音量
+            volume = self.calculate_attention(self.ch_names, self.config['DataPeriod'])  # 选定通道的平均功率折合音量
+            if volume is not None:
+                self.BCIServer.broadcastCmd("TrialCmd_SetMusicVolume_" + str(volume))
+            else:
+                self.BCIServer.broadcastCmd("TrialCmd_SetMusicVolume_" + str(0.05))
+            self.TrialCoefficientData.append(volume)
+            print('Sent Volume:', volume)
+            await asyncio.sleep(1)
 
     def SendTrackCode(self, track_mode=0):
         g_code = self.GenerateTrackCode()
@@ -239,7 +245,8 @@ class AAEParadigm(SynParadigm):
         else:
             # Check if the number of channels in data matches the number of channels requested
             if data.shape[0] < len(channel_indices):
-                print(f"Warning: Not enough channels in data ({data.shape[0]}). Expected {len(channel_indices)} channels.")
+                print(
+                    f"Warning: Not enough channels in data ({data.shape[0]}). Expected {len(channel_indices)} channels.")
                 return None
 
             relevant_data = data[channel_indices, :]  # Extract the relevant channels by their indices
