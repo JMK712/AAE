@@ -31,7 +31,7 @@ server.paradigms[i_paradigm].running_param['client_id'] = i_appClient
 # 调整config
 server.paradigms[i_paradigm].config['n_session'] = 5  # 总session数->总参与者数
 server.paradigms[i_paradigm].config['n_run'] = 3  # 一个Session下的run数->每人的实验次数
-server.paradigms[i_paradigm].config['n_trial'] = 4  # 一次实验下的阶段数->四条道路
+server.paradigms[i_paradigm].config['n_trial'] = 4  # 一次实验下的阶段数->四条道路（0也算）
 server.paradigms[i_paradigm].config['DataPeriod'] = 1
 # ：run_loop()函数中执行的就是取前DataPeriod秒的数据，使用分类器分类。
 # 之后调用运动想象状态同步服务同步到Unity。
