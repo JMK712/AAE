@@ -3,14 +3,14 @@ from threading import Thread
 
 from BCIServer.Services.ValueService import ValueService
 from BCIServer.Services.EventService import EventService
-from bGUI.mainWindow import BCIplugWindow
-from PluginCore.base import PluginCore
+# from bGUI.mainWindow import BCIplugWindow
+# from PluginCore.base import PluginCore
 
-from PyQt5 import uic
-from PyQt5.Qt import QApplication, QWidget, QThread
-from PyQt5.QtWidgets import QListView, QAbstractItemView
-from PyQt5.QtCore import QStringListModel
-import sys
+# from PyQt5 import uic
+# from PyQt5.Qt import QApplication, QWidget, QThread
+# from PyQt5.QtWidgets import QListView, QAbstractItemView
+# from PyQt5.QtCore import QStringListModel
+# import sys
 
 
 class BCIServer():
@@ -50,10 +50,10 @@ class BCIServer():
 
         self.window = None
 
-        if pluginCore is None:
-            self.pluginCore = PluginCore(preprocess={}, algorithms={}, datasets={}, modules={}, inspectors={})
-        else:
-            self.pluginCore = pluginCore
+        # if pluginCore is None:
+        #     self.pluginCore = PluginCore(preprocess={}, algorithms={}, datasets={}, modules={}, inspectors={})
+        # else:
+        #     self.pluginCore = pluginCore
 
     def run(self):
         try:
@@ -67,21 +67,21 @@ class BCIServer():
 
         self.log('Unity server is running at {}:{}'.format(self.host, self.port))
 
-    def GUI(self):
-
-        # Create a QApplication instance inside the GUI method
-        app = QApplication(sys.argv)
-
-        self.window = BCIplugWindow(BCIServer=self)
-        self.log_func = self.window.log
-        self.value_func = self.window.updateValue
-        self.window.show()
-
-        # Start the Qt application event loop
-        app.exec_()
-
-        # Cleanup
-        self.window = None
+    # def GUI(self):
+    #
+    #     # Create a QApplication instance inside the GUI method
+    #     app = QApplication(sys.argv)
+    #
+    #     self.window = BCIplugWindow(BCIServer=self)
+    #     self.log_func = self.window.log
+    #     self.value_func = self.window.updateValue
+    #     self.window.show()
+    #
+    #     # Start the Qt application event loop
+    #     app.exec_()
+    #
+    #     # Cleanup
+    #     self.window = None
 
     def log(self, msg):
         print(msg)
@@ -134,17 +134,17 @@ class BCIServer():
         self.paradigms[default_name] = paradigm
         self.i_paradigm = self.n_paradigm - 1
 
-    def loadResult(self, filepath):
-        self.log('BCI Server loading result...')
-
-        self.n_result += 1
-
-        # TODO:运行时有且只有一个core，使用当前core加载reuslt,之后加入其他core的处理逻辑
-
-        default_name = 'Result_' + str(self.n_result) + ':' + filepath.split('_')[0]
-        df = PluginCore.read_df_from_file(filepath)
-        self.results[default_name] = df
-        self.i_result = self.n_result - 1
+    # def loadResult(self, filepath):
+    #     self.log('BCI Server loading result...')
+    #
+    #     self.n_result += 1
+    #
+    #     运行时有且只有一个core，使用当前core加载reuslt,之后加入其他core的处理逻辑
+    #
+    #     default_name = 'Result_' + str(self.n_result) + ':' + filepath.split('_')[0]
+    #     df = PluginCore.read_df_from_file(filepath)
+    #     self.results[default_name] = df
+    #     self.i_result = self.n_result - 1
 
     def startStreamClient(self):
         cur_key = list(self.streamClients.keys())[self.i_streamClient]

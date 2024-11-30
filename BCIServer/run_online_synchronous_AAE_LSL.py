@@ -7,9 +7,7 @@ from BCIServer.base import BCIServer
 server = BCIServer(pluginCore=None)
 server.run()
 
-# 启动Unity监听客户端
-server.listenUnityAppClient()
-i_appClient = list(server.appClients.keys())[0]
+
 
 # TODO：设置需要的通道，并相应的启动LSL流
 ch_names = ['T7', 'T8', 'C3', 'C4', 'F3', 'F4', 'P3', 'P4']
@@ -18,9 +16,12 @@ sc.startStreaming()
 
 # todo：将LSL流加载到BCIPlugin服务中
 server.loadStreamClient(sc)
-
+# 启动Unity监听客户端
+server.listenUnityAppClient()
+i_appClient = list(server.appClients.keys())[0]
+i_streamClient = list(server.streamClients.keys())[0]
 # 加载范式
-server.loadParadigm(AAEParadigm(BCIServer=server))
+server.loadParadigm(AAEParadigm(BCIServer=server, stream_id=i_streamClient))
 
 i_paradigm = list(server.paradigms.keys())[0]
 i_streamClient = list(server.streamClients.keys())[0]
@@ -38,5 +39,5 @@ server.paradigms[i_paradigm].config['DataPeriod'] = 1
 
 # 开始运行范式
 server.paradigms[i_paradigm].run()
-# 结束运行范式
-server.paradigms[i_paradigm].stop()
+# # 结束运行范式
+# server.paradigms[i_paradigm].stop()
